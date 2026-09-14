@@ -1,0 +1,23 @@
+services:
+  # 静态 Web 服务：只托管 vite build 产物，不包含任何服务端逻辑
+  web:
+    build:
+      context: .
+      target: web
+    image: spritesheet-inspector-web:latest
+    ports:
+      # 宿主端口可用 WEB_PORT 覆盖，例如 WEB_PORT=9000 docker compose up -d web
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
+
+  # 一次性验收服务：构建 → 类型检查 → Vitest 坐标单测 → Playwright 上传/切换 e2e
+  # 用法：docker compose run --rm verify   （退出码 0 即验收通过）
+  verify:
+    build:
+      context: .
+      target: verify
+    image: spritesheet-inspector-verify:latest
+    environment:
+      CI: "true"
+    command: ["npm", "run", "verify"]
+    restart: "no"

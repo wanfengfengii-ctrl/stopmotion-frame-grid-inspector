@@ -1,0 +1,14 @@
+node_modules/
+dist/
+samples/
+uploads/
+test-results/
+playwright-report/
+blob-report/
+coverage/
+.git/
+*.log
+.DS_Store
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -1,0 +1,25 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-ssr/
+*.local
+
+# 用户上传的样本图片（精灵图不含元数据且可能受版权保护，不入库）
+samples/
+uploads/
+*.sample.png
+
+# 测试产物与报告
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# 日志与系统文件
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/
