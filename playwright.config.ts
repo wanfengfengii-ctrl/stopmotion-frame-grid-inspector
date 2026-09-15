@@ -13,6 +13,11 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     trace: 'on-first-retry',
+    // 仅在受限容器（无用户命名空间 / 沙箱）中通过 PLAYWRIGHT_NO_SANDBOX=1 放宽；
+    // 默认与 verify 镜像保持一致，不附加这些参数。
+    launchOptions: process.env.PLAYWRIGHT_NO_SANDBOX
+      ? { args: ['--no-sandbox', '--disable-dev-shm-usage'] }
+      : {},
   },
   projects: [
     {

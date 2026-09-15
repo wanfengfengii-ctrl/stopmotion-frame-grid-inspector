@@ -9,6 +9,7 @@ import {
 } from './lib/geometry';
 import { cropAllFrames, decodePng, type CroppedFrame, type DecodedImage } from './lib/image';
 import { buildManifest, downloadManifest } from './lib/manifest';
+import { FramePlayer } from './components/FramePlayer';
 
 interface FormState {
   rows: string;
@@ -269,6 +270,8 @@ export function App() {
             </details>
             <FrameOverlay decoded={decoded} frames={frames} />
           </section>
+
+          <FramePlayer frames={frames} />
 
           <section className="frames" aria-label="逐帧裁切结果">
             {frames.map((frame) => (

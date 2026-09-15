@@ -245,3 +245,135 @@ button:hover {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* 逐帧动画预览 */
+.player h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.player-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.player-status {
+  font-size: 0.78rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.player-status.status-ready {
+  color: var(--muted);
+}
+
+.player-status.status-playing {
+  color: #18b26b;
+  border-color: #18b26b;
+}
+
+.player-status.status-paused {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.player-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+
+.player-stage img {
+  max-width: 100%;
+  image-rendering: pixelated;
+  background:
+    repeating-conic-gradient(#888 0% 25%, #555 0% 50%) 0 0 / 16px 16px;
+  border-radius: 4px;
+}
+
+.player-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.play-toggle {
+  min-width: 88px;
+}
+
+.fps-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.fps-field input {
+  width: 96px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.fps-field input[aria-invalid='true'] {
+  border-color: var(--error-border);
+}
+
+.fps-field small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.player-counter {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 6px;
+}
+
+.fps-warning {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 0.82rem;
+}
+
+.player-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.player-dot {
+  min-width: 30px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+}
+
+.player-dot.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}

@@ -51,6 +51,45 @@ async function cardCount(page: Page) {
   return page.getByTestId('frame-card').count();
 }
 
+/** 读取动画预览画面中心点的 RGBA。 */
+async function samplePlayerPixel(page: Page): Promise<[number, number, number, number]> {
+  return page.$eval('[data-testid="player-frame-img"]', (img) =>
+    new Promise((resolve) => {
+      const image = img as HTMLImageElement;
+      const draw = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(image, 0, 0);
+        const px = ctx.getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data;
+        resolve([px[0], px[1], px[2], px[3]]);
+      };
+      if (image.complete && image.naturalWidth > 0) draw();
+      else image.addEventListener('load', draw, { once: true });
+    }),
+  );
+}
+
+function rgba(row: number, col: number): [number, number, number, number] {
+  const c = frameColor(row, col);
+  return [c.r, c.g, c.b, c.a];
+}
+
+async function expectPlayerColor(page: Page, row: number, col: number, timeout = 3000) {
+  await expect.poll(() => samplePlayerPixel(page), { timeout }).toEqual(rgba(row, col));
+}
+
+async function readManifest(page: Page) {
+  const text = (await page.getByTestId('manifest').textContent()) ?? '';
+  return JSON.parse(text);
+}
+
+async function collectCardCoords(page: Page): Promise<string[]> {
+  const cards = await page.getByTestId('frame-card').all();
+  return Promise.all(cards.map((card) => card.getByTestId('frame-coords').innerText()));
+}
+
 test.describe('上传与解码', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -238,5 +277,183 @@ test.describe('行优先 / 列优先切换', () => {
         page.getByTestId('frame-card').filter({ hasText: `#${f.index}` }).getByTestId('frame-coords'),
       ).toContainText(`x=${f.x}, y=${f.y}, w=${f.width}, h=${f.height}`);
     }
+  });
+});
+
+test.describe('逐帧动画预览', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await uploadSheet(page);
+    await fillFixtureParams(page);
+    await expect(page.getByTestId('summary')).toBeVisible();
+  });
+
+  test('合法帧生成后预览停在第 1 帧且状态为就绪', async ({ page }) => {
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'ready');
+    await expect(page.getByTestId('playback-status')).toHaveText('就绪');
+    await expect(page.getByTestId('player-counter')).toContainText('第 1 / 8 帧');
+    await expect(page.getByTestId('play-toggle')).toHaveText('播放');
+    await expectPlayerColor(page, 0, 0);
+  });
+
+  test('播放按编号顺序逐帧推进，末帧后循环回第 1 帧（逐像素确认）', async ({ page }) => {
+    // 2fps：每帧 500ms，节奏宽裕；按行优先顺序逐帧采样
+    await page.getByTestId('fps').fill('2');
+    await page.getByTestId('play-toggle').click();
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'playing');
+    await expect(page.getByTestId('play-toggle')).toHaveText('暂停');
+
+    const order: Array<[number, number]> = [
+      [0, 0], [0, 1], [0, 2], [0, 3],
+      [1, 0], [1, 1], [1, 2], [1, 3],
+      // 循环
+      [0, 0], [0, 1],
+    ];
+    for (const [r, c] of order) {
+      await expect.poll(() => samplePlayerPixel(page), { timeout: 1500, intervals: [60] }).toEqual(rgba(r, c));
+    }
+    // 循环一轮后仍在播放
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'playing');
+  });
+
+  test('暂停后画面冻结在当前帧，继续后从该帧播放', async ({ page }) => {
+    await page.getByTestId('fps').fill('2');
+    await page.getByTestId('play-toggle').click();
+    // 等到走到第 2 帧
+    await expectPlayerColor(page, 0, 1);
+
+    await page.getByTestId('play-toggle').click();
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'paused');
+    const frozen = await samplePlayerPixel(page);
+
+    // 暂停 1.2s（若仍在播放 2fps 下应已前进 2 帧），像素不变
+    await page.waitForTimeout(1200);
+    expect(await samplePlayerPixel(page)).toEqual(frozen);
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'paused');
+
+    // 继续：下一帧应在约 500ms 后出现
+    await page.getByTestId('play-toggle').click();
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'playing');
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 1500, intervals: [60] }).toEqual(rgba(0, 2));
+  });
+
+  test('调速：1fps 时帧切换缓慢，改为 30fps 后快速循环', async ({ page }) => {
+    await page.getByTestId('fps').fill('1');
+    await page.getByTestId('play-toggle').click();
+    await expectPlayerColor(page, 0, 0);
+    // 800ms 时仍在第 1 帧
+    await page.waitForTimeout(800);
+    expect(await samplePlayerPixel(page)).toEqual(rgba(0, 0));
+    // 约 1s 后切到第 2 帧
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 1500, intervals: [60] }).toEqual(rgba(0, 1));
+
+    // 暂停后调到 30fps 再播放
+    await page.getByTestId('play-toggle').click();
+    await page.getByTestId('fps').fill('30');
+    await expect(page.getByTestId('fps-error')).toHaveCount(0);
+    await page.getByTestId('play-toggle').click();
+    // 30fps 下从第 2 帧出发，约 7 帧（~240ms）后循环回到第 1 帧
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 2000, intervals: [30] }).toEqual(rgba(0, 0));
+  });
+
+  test('切换编号顺序时停止播放并从新序列第 1 帧开始，像素按新顺序推进', async ({ page }) => {
+    await page.getByTestId('fps').fill('2');
+    await page.getByTestId('play-toggle').click();
+    await expectPlayerColor(page, 0, 1);
+
+    // 播放中切列优先：旧计时停止、回到就绪、停在第 1 帧
+    await page.getByTestId('order-column').check();
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'ready');
+    await expect(page.getByTestId('player-counter')).toContainText('第 1 / 8 帧');
+    await expectPlayerColor(page, 0, 0);
+
+    // 列优先：#2=(行1,列0)，#3=(行0,列1)
+    await page.getByTestId('play-toggle').click();
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 1500, intervals: [60] }).toEqual(rgba(1, 0));
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 1500, intervals: [60] }).toEqual(rgba(0, 1));
+  });
+
+  test('帧率为空、非整数或越界时暂停并就地说明，恢复后可继续播放', async ({ page }) => {
+    await page.getByTestId('fps').fill('2');
+    await page.getByTestId('play-toggle').click();
+    await expectPlayerColor(page, 0, 1);
+
+    // 越界
+    await page.getByTestId('fps').fill('31');
+    await expect(page.getByTestId('fps-error')).toContainText('帧率越界');
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'paused');
+    let frozen = await samplePlayerPixel(page);
+    await page.waitForTimeout(700);
+    expect(await samplePlayerPixel(page)).toEqual(frozen);
+
+    // 非整数
+    await page.getByTestId('fps').fill('1.5');
+    await expect(page.getByTestId('fps-error')).toContainText('帧率非整数');
+    expect(await samplePlayerPixel(page)).toEqual(frozen);
+
+    // 为空
+    await page.getByTestId('fps').fill('');
+    await expect(page.getByTestId('fps-error')).toContainText('帧率为空');
+
+    // 非法期间帧卡、总览、JSON 下载仍然可用
+    expect(await cardCount(page)).toBe(8);
+    await expect(page.getByTestId('summary')).toBeVisible();
+    await expect(page.getByTestId('download-json')).toBeVisible();
+
+    // 恢复合法：提示消失，播放正常
+    await page.getByTestId('fps').fill('2');
+    await expect(page.getByTestId('fps-error')).toHaveCount(0);
+    await page.getByTestId('play-toggle').click();
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'playing');
+    // 当前停在 (0,1)，下一帧为 (0,2)
+    frozen = await samplePlayerPixel(page);
+    expect(frozen).toEqual(rgba(0, 1));
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 1500, intervals: [60] }).toEqual(rgba(0, 2));
+  });
+
+  test('播放状态不改写裁切坐标与 JSON 清单', async ({ page }) => {
+    const beforeCoords = await collectCardCoords(page);
+    const beforeManifest = await readManifest(page);
+
+    // 高速播放超过一整轮
+    await page.getByTestId('fps').fill('30');
+    await page.getByTestId('play-toggle').click();
+    await expect.poll(() => samplePlayerPixel(page), { timeout: 2000, intervals: [30] }).toEqual(rgba(0, 0));
+    await page.waitForTimeout(600); // 再多走若干帧
+    await page.getByTestId('play-toggle').click();
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'paused');
+
+    // 帧卡坐标与清单逐字节不变
+    expect(await collectCardCoords(page)).toEqual(beforeCoords);
+    expect(await readManifest(page)).toEqual(beforeManifest);
+
+    // 经过非法帧率再恢复，清单依旧不变
+    await page.getByTestId('fps').fill('0');
+    await expect(page.getByTestId('fps-error')).toBeVisible();
+    await page.getByTestId('fps').fill('30');
+    expect(await readManifest(page)).toEqual(beforeManifest);
+    expect(await collectCardCoords(page)).toEqual(beforeCoords);
+  });
+
+  test('几何校验失败或图片解码失败时动画画面随原链路清空，恢复后重新就绪', async ({ page }) => {
+    // 几何非法：整个预览（含动画）卸载，不残留失效帧
+    await setField(page, 'marginRight', '100');
+    await expect(page.getByTestId('error')).toBeVisible();
+    expect(await page.getByTestId('player-frame-img').count()).toBe(0);
+    expect(await page.getByTestId('playback-status').count()).toBe(0);
+
+    // 恢复：动画重新出现，停在第 1 帧、就绪
+    await setField(page, 'marginRight', String(FIXTURE_LAYOUT.marginRight));
+    await expect(page.getByTestId('playback-status')).toHaveAttribute('data-status', 'ready');
+    await expect(page.getByTestId('player-counter')).toContainText('第 1 / 8 帧');
+    await expectPlayerColor(page, 0, 0);
+
+    // 解码失败同样清空动画画面
+    await page
+      .getByTestId('file-input')
+      .setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from([0, 1, 2, 3]) });
+    await expect(page.getByTestId('error')).toContainText('图片解码失败');
+    expect(await page.getByTestId('player-frame-img').count()).toBe(0);
+    expect(await page.getByTestId('playback-status').count()).toBe(0);
   });
 });
